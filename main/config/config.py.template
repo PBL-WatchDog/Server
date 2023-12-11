@@ -1,0 +1,7 @@
+JWT_SECRET_KEY = 'jwt 비밀 키 번호'
+'''import os
+os.urandom(24).hex()'''
+
+MARIADB_PASSWORD = "maria db 비밀번호"
+
+INFLUXDB_TOKEN = "influx db 토큰"

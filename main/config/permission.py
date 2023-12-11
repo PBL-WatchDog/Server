@@ -1,0 +1,2 @@
+PER_ADMIN = "0"
+PER_USER = "1"
