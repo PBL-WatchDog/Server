@@ -1,5 +1,6 @@
 from flask import jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+import requests, json
 
 from main.config import influxDB_client, permission
 from main.utils import mysql_query, dateutil
@@ -37,3 +38,36 @@ def get_main_by_recent():
                 }
 
     return jsonify(result)
+
+friend_url = "https://kapi.kakao.com/v1/api/talk/friends"
+send_url = "https://kapi.kakao.com/v1/api/talk/friends/message/send"
+template_id = 101764
+
+#발급받은 액세스 토큰 열어 저장.
+with open("/home/smarthome/service-deploy/PBL_Server/main/config/kakao.json", "r") as fp: #파일 위치 확인 필요
+    tokens = json.load(fp)
+
+@activity.route('/kakao', methods=['GET'])
+# @jwt_required()
+def send_kakao_message():
+    name ="김두현"
+    link = "http://211.57.200.6:3333/main/report"
+    try:
+        # 친구 목록 조회
+        headers = {"Authorization": "Bearer " + tokens["access_token"]}
+        result = json.loads(requests.get(friend_url, headers=headers).text)
+        print(result)
+        friends_list = result.get("elements")
+        friend_id = friends_list[1].get("uuid")
+        # print(result)
+        # 템플릿 전송 요청
+        data = {
+            "receiver_uuids": json.dumps([friend_id]),  # 수정된 부분
+            "template_id": template_id,  # 템플릿 ID 추가
+            "template_args": json.dumps({"name": name, "link": link}),  # 템플릿에 전달할 인자
+        }
+        response = requests.post(send_url, headers=headers, data=data)
+        result = json.loads(response.text)
+        return jsonify(result)
+    except Exception as ex:
+        print(ex)
