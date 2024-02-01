@@ -51,7 +51,6 @@ def get_predict_temperature():
             data.append({"time": time, "value": row.temperature})
             time_list.append(time)
 
-        print(data)
         response = {
             "msg":"success",
             "type": 'temp',
