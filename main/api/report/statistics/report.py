@@ -4,6 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from main.config import permission
 from main.utils import mysql_query
 from main.config.config import origin_df
+from main.config import influxDB_client
 
 from . import statistics
 
@@ -75,23 +76,56 @@ def get_max_min_temp_humidity():
     if not gateway_id:
         return jsonify({"msg":"not found gateway"}), 400
     
-    response = {"msg":"success"}
-    df = get_csv_data(gateway_id, ('2023-12-03 15:00', '2023-12-10 15:00'), ["temperature", "humidity"])
+    # InfluxDB 쿼리 생성
+    query_api = influxDB_client.client.query_api()
+    query = f"""
+            from(bucket: "smarthome")
+            |> range(start: 2023-12-03T15:00:00.000Z, stop: 2023-12-10T15:00:00.000Z)
+            |> filter(fn: (r) => r._measurement == "GatewayData" and (r._field == "temperature" or r._field == "humidity") and r.mac_address == "{gateway_id}")
+            |> aggregateWindow(every: 3h, fn: mean, createEmpty: false)
+            |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+        """
 
-    temperature = df["temperature"]
-    humidity = df["humidity"]
+    # 쿼리 실행 및 DataFrame으로 결과 받기
+    df = query_api.query_data_frame(query, org="Brighten")
+    if df.empty:
+        return jsonify({"msg": "No data found"}), 404
 
-    max_temp_idx, min_temp_idx = temperature.idxmax(), temperature.idxmin() 
-    max_temp, min_temp = temperature[max_temp_idx], temperature[min_temp_idx]
+    # df = get_csv_data(gateway_id, ('2023-12-03 15:00', '2023-12-10 15:00'), ["temperature", "humidity"])
 
-    max_humi_idx, min_humi_idx = humidity.idxmax(), humidity.idxmin() 
-    max_humi, min_humi = humidity[max_humi_idx], humidity[min_humi_idx]
-    
-    data = {}
-    data['temperature'] = {"max": [max_temp_idx, max_temp], "min": [min_temp_idx, min_temp]}
-    data['humidity'] = {"max": [max_humi_idx, max_humi], "min": [min_humi_idx, min_humi]}
+    # '_time' 컬럼을 datetime으로 변환
+    df['_time'] = pd.to_datetime(df['_time'])
 
-    response['data'] = data
+    # 온도와 습도의 최대값 및 최소값 찾기
+    max_temp = df['temperature'].max()
+    min_temp = df['temperature'].min()
+    max_humi = df['humidity'].max()
+    min_humi = df['humidity'].min()
+
+    # 최대 및 최소값에 해당하는 시간 찾기 및 형식 변환
+    # 최대 및 최소값에 해당하는 시간 찾기 및 형식 변환
+    max_temp_time = df[df['temperature'] == max_temp]['_time'].iloc[0].strftime('%a, %d %b %Y %H:%M:%S GMT')
+    min_temp_time = df[df['temperature'] == min_temp]['_time'].iloc[0].strftime('%a, %d %b %Y %H:%M:%S GMT')
+    max_humi_time = df[df['humidity'] == max_humi]['_time'].iloc[0].strftime('%a, %d %b %Y %H:%M:%S GMT')
+    min_humi_time = df[df['humidity'] == min_humi]['_time'].iloc[0].strftime('%a, %d %b %Y %H:%M:%S GMT')
+
+
+    # 결과 데이터 구성
+    data = {
+        'temperature': {
+            "max": {"time": max_temp_time, "value": max_temp},
+            "min": {"time": min_temp_time, "value": min_temp}
+        },
+        'humidity': {
+            "max": {"time": max_humi_time, "value": max_humi},
+            "min": {"time": min_humi_time, "value": min_humi}
+        }
+    }
+
+    response = {
+        "msg": "success",
+        "data": data
+    }
     return jsonify(response)
 
 @statistics.route('/acitvity', methods=["GET"])
